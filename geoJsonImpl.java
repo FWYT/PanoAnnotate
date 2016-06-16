@@ -1,3 +1,8 @@
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.inject.Inject;
+import org.geojson.GeometryCollection;
+import org.geojson.LngLatAlt;
+import org.geojson.Polygon;
 import org.postgresql.ds.PGPoolingDataSource;
 
 import java.sql.Connection;
@@ -7,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+
 /**
  * Created by vagrant on 6/15/16.
  */
@@ -15,7 +21,8 @@ public class geoJsonImpl implements geoJsonService {
     private static PGPoolingDataSource source;
     private static Connection c;
 
-    public void geoJsonImpl()
+    @Inject
+    public geoJsonImpl()
     {
         System.out.println("Start");
         source = new PGPoolingDataSource();
@@ -37,6 +44,12 @@ public class geoJsonImpl implements geoJsonService {
     }
 
     @Override
+    public String getGeoJson(List<Double> pixels)
+    {
+        return null;
+    }
+
+    @Override
     public List<Double> getCoordinates(String imagePath)
     {
         //list of lists or single list where every 6 is a square?
@@ -54,6 +67,7 @@ public class geoJsonImpl implements geoJsonService {
                 coords.add(res.getDouble("z1"));
                 coords.add(res.getDouble("x2"));
                 coords.add(res.getDouble("y2"));
+                coords.add(res.getDouble("z2"));
             }
 
             res.close();
@@ -66,7 +80,8 @@ public class geoJsonImpl implements geoJsonService {
             System.exit(0);
         }
 
-        assert(coords.size()%3 == 0);
+        System.out.println(coords);
+        assert(coords.size()%6 == 0);
         return coords;
     }
 
@@ -106,7 +121,6 @@ public class geoJsonImpl implements geoJsonService {
     private List<Double> matrixMult(double x, double y, double z, List<Double> transform)
     {
         assert(transform.size() == 16);
-        assert(y == 0.0);
 
         List<Double> result = new ArrayList<Double>();
         Double m1,m2,m3,m4;
@@ -134,29 +148,86 @@ public class geoJsonImpl implements geoJsonService {
     @Override
     public List<Double> transformCoordinates(List<Double> coord, List<Double> transformM)
     {
-        assert(coord.size()%3 == 0);
+        assert(coord.size()%6 == 0);
         assert(transformM.size() == 16);
 
         //every 3 is a coordinate (x,y,z)
         //every 6 is a bounding box (x1,y1,z1) (x2,y2,z2)
         List<Double> transformedCoords = new ArrayList<Double>();
-        List<Double> res;
+        List<Double> res = null;
+
 
         for (int i = 0; i<coord.size(); i+=3)
         {
+            //only entries (1,1) and (2,1) are needed from the resulting matrix
             res = matrixMult(coord.get(i), coord.get(i+1), coord.get(i+2), transformM);
-            transformedCoords.addAll(res);
+            transformedCoords.addAll(res.subList(0,2));
         }
 
         System.out.println(transformedCoords);
 
-        assert(transformedCoords.size() == coord.size());
-        return null;
+
+        assert(transformedCoords.size() % 2 == 0);
+        return transformedCoords;
     }
 
-    @Override
-    public void getGeoJson(List<Double> pixels)
-    {
 
+    public String parseGeoJson(List<Double> pixels)
+    {
+        ObjectMapper mapper = new ObjectMapper();
+        GeometryCollection gc = new GeometryCollection();
+        Polygon p ;
+        String json = "";
+
+        Double x1,y1,x2,y2,x3,y3,x4,y4,width,height;
+
+        //every 4 points represent 2 corners of a bounding box
+        for (int i = 0; i<pixels.size(); i+=4)
+        {
+            //left top
+            x1 = pixels.get(i);
+            y1 = pixels.get(i+1);
+            //right bottom
+            x2 = pixels.get(i+2);
+            y2 = pixels.get(i+3);
+
+            //left top corner and right bottom corner
+            width = x2-x1;
+            height = y1-y2;
+
+            //right top corner
+            x3 = x1+width;
+            y3 = y1;
+
+            //left bottom
+            x4 = x2-width;
+            y4 = y2;
+
+            //add to geometry collection
+            p = new Polygon(new LngLatAlt(x4,y4), new LngLatAlt(x1,y1), new LngLatAlt(x3,y3), new LngLatAlt(x2,y2));
+            gc.add(p);
+        }
+
+        try {
+            json = mapper.writeValueAsString(gc);
+            System.out.println("\n");
+            System.out.println(json);
+        }
+        catch (Exception e)
+        {
+            e.printStackTrace();
+            System.err.println(e.getClass().getName()+": "+e.getMessage());
+            System.exit(0);
+        }
+
+        return json;
+    }
+
+    public String getGeoJson2 (String image)
+    {
+        List<Double> coords = getCoordinates(image);
+        List<Double> transformMatrix = getTransformMatrix(image);
+        List<Double> pixels = transformCoordinates(coords, transformMatrix);
+        return parseGeoJson(pixels);
     }
 }

@@ -9,7 +9,7 @@ public interface geoJsonService {
     List<Double> getCoordinates(String imagePath);
     List<Double> getTransformMatrix(String imagePath);
     List<Double> transformCoordinates(List<Double> coord, List<Double> transformM);
-    void getGeoJson(List<Double> pixels);
+    String getGeoJson(List<Double> pixels);
 
 }
 
